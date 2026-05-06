@@ -29,7 +29,8 @@ struct HistoryView: View {
                         Text("Today's Cookies")
                             .font(.system(size: 18, weight: .bold, design: .serif))
                             .foregroundColor(Theme.gold)
-                        Text("\(store.todayFortunes.count)/24 opened")
+                        let todayXP = store.todayFortunes.reduce(0) { $0 + $1.xpEarned }
+                        Text("\(store.todayFortunes.count)/24 opened  ·  +\(todayXP) XP today")
                             .font(.system(size: 11))
                             .foregroundColor(Theme.lightGold.opacity(0.7))
                     }
@@ -82,18 +83,37 @@ struct CookieTileView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Rank color accent strip
+            fortune.rank.color
+                .frame(height: 4)
+
             // Card header
             ZStack {
                 Theme.red
                 HStack {
-                    Text(fortune.character)
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundColor(.white)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(fortune.character)
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundColor(.white)
+                        // Rank label
+                        HStack(spacing: 3) {
+                            Text(fortune.rank.emoji)
+                                .font(.system(size: 9))
+                            Text(fortune.rank.chinese)
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundColor(fortune.rank.color)
+                        }
+                    }
                     Spacer()
-                    if fortune.isSaved {
-                        Image(systemName: "bookmark.fill")
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if fortune.isSaved {
+                            Image(systemName: "bookmark.fill")
+                                .foregroundColor(Theme.gold)
+                                .font(.system(size: 13))
+                        }
+                        Text("+\(fortune.xpEarned) XP")
+                            .font(.system(size: 10, weight: .black, design: .rounded))
                             .foregroundColor(Theme.gold)
-                            .font(.system(size: 14))
                     }
                 }
                 .padding(.horizontal, 12)
@@ -162,11 +182,60 @@ struct FortuneDetailSheet: View {
                 .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 16) {
                         Text("🥠")
                             .font(.system(size: 64))
                             .padding(.top, 24)
-                            .padding(.bottom, 16)
+
+                        // Rank badge
+                        HStack(spacing: 14) {
+                            Text(fortune.rank.emoji)
+                                .font(.system(size: 28))
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(fortune.rank.chinese)
+                                        .font(.system(size: 26, weight: .black))
+                                        .foregroundColor(fortune.rank.color)
+                                    Text(fortune.rank.title)
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.85))
+                                }
+                                HStack(spacing: 3) {
+                                    ForEach(0..<5) { i in
+                                        Image(systemName: i < fortune.rank.stars ? "star.fill" : "star")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(i < fortune.rank.stars ? fortune.rank.color : Color.white.opacity(0.25))
+                                    }
+                                    Text("  +\(fortune.rank.xp) XP")
+                                        .font(.system(size: 11, weight: .black, design: .rounded))
+                                        .foregroundColor(Theme.gold)
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(fortune.rank.color.opacity(0.12))
+                                .overlay(RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(fortune.rank.color.opacity(0.55), lineWidth: 1.5))
+                        )
+                        .padding(.horizontal, 20)
+
+                        // Rank detail description
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "quote.opening")
+                                .font(.system(size: 12))
+                                .foregroundColor(fortune.rank.color.opacity(0.7))
+                                .padding(.top, 2)
+                            Text(fortune.rank.detail)
+                                .font(.system(size: 13, design: .serif))
+                                .foregroundColor(Theme.lightGold.opacity(0.85))
+                                .italic()
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 24)
 
                         fullCard
                             .padding(.horizontal, 20)

@@ -4,6 +4,9 @@ private enum BreakState { case whole, broken }
 
 struct CookieRevealView: View {
     let fortune: Fortune
+    let didLevelUp: Bool
+    let newLevel: Int
+
     @EnvironmentObject var store: FortuneStore
     @Environment(\.dismiss) private var dismiss
 
@@ -18,9 +21,14 @@ struct CookieRevealView: View {
     @State private var cardOpacity:   Double  = 0
     @State private var isSaved: Bool = false
 
+    // Celebration
+    @State private var showFirecrackers = false
+    @State private var showXPToast      = false
+
     var body: some View {
         ZStack {
             background
+
             VStack(spacing: 0) {
                 if breakState == .whole {
                     wholeCookieView
@@ -28,6 +36,25 @@ struct CookieRevealView: View {
                     brokenView
                 }
             }
+
+            // XP toast anchored to top (outside scroll flow)
+            if showXPToast {
+                VStack {
+                    XPToast(
+                        rank:       fortune.rank,
+                        xpEarned:   fortune.xpEarned,
+                        didLevelUp: didLevelUp,
+                        newLevel:   newLevel
+                    )
+                    .padding(.horizontal, 20)
+                    Spacer()
+                }
+                .padding(.top, 56)  // below nav bar
+            }
+
+            // Full-screen particle overlay
+            FirecrackerView(isActive: $showFirecrackers)
+                .ignoresSafeArea()
         }
         .navigationBarBackButtonHidden(true)
         .toolbar {
@@ -47,18 +74,16 @@ struct CookieRevealView: View {
     private var background: some View {
         LinearGradient(
             colors: [Color(red: 0.07, green: 0.03, blue: 0.01), Theme.darkRed.opacity(0.9)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            startPoint: .topLeading, endPoint: .bottomTrailing
         )
         .ignoresSafeArea()
     }
 
-    // MARK: - Whole Cookie
+    // MARK: - Whole cookie
 
     private var wholeCookieView: some View {
         VStack(spacing: 36) {
             Spacer()
-
             Text("Your Fortune Awaits")
                 .font(.system(size: 22, weight: .semibold, design: .serif))
                 .foregroundColor(Theme.lightGold)
@@ -77,18 +102,17 @@ struct CookieRevealView: View {
                     .font(.system(size: 22))
                     .foregroundColor(Theme.gold.opacity(0.5))
             }
-
             Spacer()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Broken View
+    // MARK: - Broken view
 
     private var brokenView: some View {
         VStack(spacing: 0) {
-            // Flying pieces
+            // Flying cookie pieces
             ZStack {
                 Text("🥠")
                     .font(.system(size: 68))
@@ -105,25 +129,85 @@ struct CookieRevealView: View {
             .frame(height: 130)
             .padding(.top, 16)
 
-            // Fortune card in scroll view
             ScrollView {
-                fortuneCard
-                    .offset(y: cardOffset)
-                    .opacity(cardOpacity)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 20)
+                VStack(spacing: 16) {
+                    rankBadge
+                    fortuneCard
+                }
+                .offset(y: cardOffset)
+                .opacity(cardOpacity)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
             }
             .scrollBounceBehavior(.basedOnSize)
 
-            // Action buttons
             actionBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { animateReveal() }
     }
 
-    // MARK: - Fortune Card
+    // MARK: - Rank badge
+
+    private var rankBadge: some View {
+        let rank = fortune.rank
+        return HStack(spacing: 14) {
+            Text(rank.emoji)
+                .font(.system(size: 32))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(rank.chinese)
+                        .font(.system(size: 30, weight: .black))
+                        .foregroundColor(rank.color)
+                    Text(rank.title)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+                // Stars
+                HStack(spacing: 3) {
+                    ForEach(0..<5) { i in
+                        Image(systemName: i < rank.stars ? "star.fill" : "star")
+                            .font(.system(size: 10))
+                            .foregroundColor(i < rank.stars ? rank.color : Color.white.opacity(0.25))
+                    }
+                    Text("  +\(rank.xp) XP")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundColor(Theme.gold)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(rank.color.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(rank.color.opacity(0.55), lineWidth: 1.5)
+                )
+        )
+    }
+
+    // MARK: - Rank detail card (description)
+
+    private var rankDetailRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "quote.opening")
+                .font(.system(size: 12))
+                .foregroundColor(fortune.rank.color.opacity(0.7))
+                .padding(.top, 2)
+            Text(fortune.rank.detail)
+                .font(.system(size: 12, design: .serif))
+                .foregroundColor(Theme.inkBlack.opacity(0.72))
+                .italic()
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - Fortune card
 
     private var fortuneCard: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -137,7 +221,7 @@ struct CookieRevealView: View {
                 .background(Theme.red)
 
             // Parchment body
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 // Fortune text
                 Text("\u{201C}\(fortune.text)\u{201D}")
                     .font(.system(size: 18, weight: .medium, design: .serif))
@@ -146,11 +230,13 @@ struct CookieRevealView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 4)
 
+                // Rank description
+                rankDetailRow
+
                 Divider().background(Theme.red.opacity(0.25))
 
-                // Character + Idiom row
+                // Character + idiom
                 HStack(alignment: .top, spacing: 16) {
-                    // Chinese character
                     VStack(spacing: 4) {
                         Text(fortune.character)
                             .font(.system(size: 54, weight: .bold))
@@ -168,22 +254,18 @@ struct CookieRevealView: View {
                         .frame(width: 1)
                         .padding(.vertical, 2)
 
-                    // Idiom
                     VStack(alignment: .leading, spacing: 5) {
                         Text("成语 · Idiom")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(Theme.red.opacity(0.65))
                             .tracking(1)
-
                         Text(fortune.idiom)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(Theme.inkBlack)
-
                         Text(fortune.idiomPinyin)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(Theme.red.opacity(0.85))
                             .italic()
-
                         Text(fortune.idiomMeaning)
                             .font(.system(size: 12))
                             .foregroundColor(Theme.inkBlack.opacity(0.72))
@@ -201,14 +283,11 @@ struct CookieRevealView: View {
                         .foregroundColor(Theme.red.opacity(0.65))
                         .tracking(2)
                         .frame(maxWidth: .infinity)
-
                     HStack(spacing: 8) {
                         ForEach(fortune.luckyNumbers.prefix(5), id: \.self) { n in
                             luckyBubble(n, special: false)
                         }
-                        Text("·")
-                            .foregroundColor(Theme.inkBlack.opacity(0.3))
-                            .font(.title3)
+                        Text("·").foregroundColor(Theme.inkBlack.opacity(0.3)).font(.title3)
                         if let last = fortune.luckyNumbers.last {
                             luckyBubble(last, special: true)
                         }
@@ -219,7 +298,7 @@ struct CookieRevealView: View {
             .padding(20)
             .background(Theme.paper)
 
-            // Red footer band
+            // Footer
             Text(fortune.drawnAt, style: .time)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.white.opacity(0.65))
@@ -244,7 +323,7 @@ struct CookieRevealView: View {
             .background(Circle().fill(special ? Theme.red : Theme.gold.opacity(0.28)))
     }
 
-    // MARK: - Action Bar
+    // MARK: - Action bar
 
     private var actionBar: some View {
         HStack(spacing: 14) {
@@ -307,6 +386,7 @@ struct CookieRevealView: View {
     }
 
     private func animateReveal() {
+        // Cookie pieces fly apart
         withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
             leftOffset   = CGSize(width: -88, height: -25)
             rightOffset  = CGSize(width:  88, height: -25)
@@ -316,16 +396,29 @@ struct CookieRevealView: View {
         withAnimation(.easeOut(duration: 0.55).delay(0.45)) {
             piecesOpacity = 0
         }
+        // Fortune card slides up
         withAnimation(.spring(response: 0.55, dampingFraction: 0.72).delay(0.25)) {
             cardOffset  = 0
             cardOpacity = 1
+        }
+        // Firecrackers + XP toast after card settles
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            showFirecrackers = true
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            try? await Task.sleep(for: .milliseconds(200))
+            showXPToast = true
         }
     }
 }
 
 #Preview {
     NavigationStack {
-        CookieRevealView(fortune: Fortune(template: FortuneData.templates[0]))
-            .environmentObject(FortuneStore())
+        CookieRevealView(
+            fortune:    Fortune(template: FortuneData.templates[0], rank: .daikichi),
+            didLevelUp: true,
+            newLevel:   4
+        )
+        .environmentObject(FortuneStore())
     }
 }

@@ -2,10 +2,10 @@ import SwiftUI
 
 struct DrawView: View {
     @EnvironmentObject var store: FortuneStore
-    @State private var drawnFortune: Fortune?
-    @State private var showReveal = false
-    @State private var jarShake: CGFloat = 0
-    @State private var buttonPulse = false
+    @State private var drawOutcome: DrawOutcome?
+    @State private var showReveal    = false
+    @State private var jarShake:     CGFloat = 0
+    @State private var buttonPulse           = false
 
     var body: some View {
         NavigationStack {
@@ -13,6 +13,7 @@ struct DrawView: View {
                 backgroundLayer
                 VStack(spacing: 0) {
                     headerDecoration
+                    xpBar
                     Spacer()
                     jarSection
                     Spacer()
@@ -22,8 +23,12 @@ struct DrawView: View {
             }
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $showReveal) {
-                if let fortune = drawnFortune {
-                    CookieRevealView(fortune: fortune)
+                if let outcome = drawOutcome {
+                    CookieRevealView(
+                        fortune:    outcome.fortune,
+                        didLevelUp: outcome.didLevelUp,
+                        newLevel:   outcome.newLevel
+                    )
                 }
             }
         }
@@ -35,29 +40,23 @@ struct DrawView: View {
         ZStack {
             LinearGradient(
                 colors: [Theme.darkRed, Theme.red, Color(red: 0.55, green: 0.02, blue: 0.02)],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
 
-            // Decorative watermark characters
             VStack {
                 HStack {
-                    decorativeChar("福", size: 90, opacity: 0.07)
+                    watermark("福", size: 90, opacity: 0.07)
                     Spacer()
-                    decorativeChar("喜", size: 70, opacity: 0.06)
+                    watermark("喜", size: 70, opacity: 0.06)
                 }
                 Spacer()
-                HStack {
-                    Spacer()
-                    decorativeChar("运", size: 80, opacity: 0.06)
-                    Spacer()
-                }
+                HStack { Spacer(); watermark("运", size: 80, opacity: 0.06); Spacer() }
                 Spacer()
                 HStack {
-                    decorativeChar("寿", size: 65, opacity: 0.07)
+                    watermark("寿", size: 65, opacity: 0.07)
                     Spacer()
-                    decorativeChar("禄", size: 75, opacity: 0.06)
+                    watermark("禄", size: 75, opacity: 0.06)
                 }
             }
             .padding(24)
@@ -65,9 +64,9 @@ struct DrawView: View {
         }
     }
 
-    private func decorativeChar(_ text: String, size: CGFloat, opacity: Double) -> some View {
-        Text(text)
-            .font(.system(size: size, weight: .bold, design: .default))
+    private func watermark(_ t: String, size: CGFloat, opacity: Double) -> some View {
+        Text(t)
+            .font(.system(size: size, weight: .bold))
             .foregroundColor(Theme.gold.opacity(opacity))
     }
 
@@ -88,8 +87,6 @@ struct DrawView: View {
                 }
                 Text("🏮").font(.system(size: 36))
             }
-
-            // Ornamental divider
             HStack(spacing: 4) {
                 goldLine
                 Text("✦").foregroundColor(Theme.gold).font(.system(size: 10))
@@ -98,16 +95,59 @@ struct DrawView: View {
             .padding(.horizontal, 40)
         }
         .padding(.top, 20)
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
     }
 
     private var goldLine: some View {
-        Rectangle()
-            .fill(Theme.gold.opacity(0.5))
-            .frame(height: 1)
+        Rectangle().fill(Theme.gold.opacity(0.5)).frame(height: 1)
     }
 
-    // MARK: - Jar Section
+    // MARK: - XP Bar
+
+    private var xpBar: some View {
+        let info = store.levelInfo
+        return VStack(spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Lv.\(info.level)")
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .foregroundColor(Theme.lightGold)
+                Text(info.chinese)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(Theme.gold)
+                Text("·")
+                    .foregroundColor(Theme.gold.opacity(0.5))
+                Text(info.english)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.lightGold.opacity(0.75))
+                Spacer()
+                Text("\(store.xpInCurrentLevel) / 100 XP")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(Theme.lightGold.opacity(0.8))
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.black.opacity(0.35))
+                        .frame(height: 7)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(
+                            LinearGradient(
+                                colors: [Theme.gold, Theme.lightGold],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * store.levelProgress, height: 7)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.75), value: store.levelProgress)
+                }
+            }
+            .frame(height: 7)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Jar
 
     private var jarSection: some View {
         VStack(spacing: 16) {
@@ -125,13 +165,11 @@ struct DrawView: View {
         }
     }
 
-    // MARK: - Draw Button
+    // MARK: - Draw button
 
     private var drawSection: some View {
         VStack(spacing: 14) {
-            Button {
-                handleDraw()
-            } label: {
+            Button { handleDraw() } label: {
                 HStack(spacing: 10) {
                     Text("🥠")
                         .font(.system(size: 22))
@@ -158,9 +196,7 @@ struct DrawView: View {
                     buttonPulse = true
                 }
             }
-            .onChange(of: store.canDraw) { _, newValue in
-                if !newValue { buttonPulse = false }
-            }
+            .onChange(of: store.canDraw) { _, v in if !v { buttonPulse = false } }
 
             if !store.todayFortunes.isEmpty {
                 Text("\(store.todayFortunes.count) opened today")
@@ -182,8 +218,8 @@ struct DrawView: View {
             try? await Task.sleep(for: .milliseconds(300))
             withAnimation(.interpolatingSpring(stiffness: 300, damping: 5)) { jarShake = 0 }
             try? await Task.sleep(for: .milliseconds(100))
-            drawnFortune = store.drawFortune()
-            if drawnFortune != nil { showReveal = true }
+            drawOutcome = store.drawFortune()
+            if drawOutcome != nil { showReveal = true }
         }
     }
 }
@@ -195,14 +231,12 @@ struct JarView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Jar body
             VStack(spacing: 0) {
                 // Lid
                 ZStack {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(LinearGradient(colors: [Theme.lightGold, Theme.gold], startPoint: .top, endPoint: .bottom))
                         .frame(width: 124, height: 16)
-                    // Lid knob
                     Capsule()
                         .fill(Theme.gold)
                         .frame(width: 30, height: 8)
@@ -221,7 +255,6 @@ struct JarView: View {
                     .fill(jarGradient)
                     .frame(width: 160, height: 170)
                     .overlay(
-                        // Shine strip
                         RoundedRectangle(cornerRadius: 16)
                             .fill(jarShine)
                             .frame(width: 18)
@@ -229,7 +262,7 @@ struct JarView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     )
                     .overlay(
-                        cookiesGrid
+                        cookiesContent
                             .padding(.horizontal, 12)
                             .padding(.vertical, 16)
                     )
@@ -246,21 +279,19 @@ struct JarView: View {
                 Color(red: 0.65, green: 0.50, blue: 0.12).opacity(0.50),
                 Color(red: 0.80, green: 0.64, blue: 0.20).opacity(0.48),
             ],
-            startPoint: .leading,
-            endPoint: .trailing
+            startPoint: .leading, endPoint: .trailing
         )
     }
 
     private var jarShine: LinearGradient {
         LinearGradient(
             colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
-            startPoint: .top,
-            endPoint: .bottom
+            startPoint: .top, endPoint: .bottom
         )
     }
 
     @ViewBuilder
-    private var cookiesGrid: some View {
+    private var cookiesContent: some View {
         let count = min(cookieCount, 9)
         if count == 0 {
             Text("空")
@@ -281,6 +312,5 @@ struct JarView: View {
 }
 
 #Preview {
-    DrawView()
-        .environmentObject(FortuneStore())
+    DrawView().environmentObject(FortuneStore())
 }
