@@ -35,7 +35,6 @@ enum FengshuiAPIConfig {
 
 // MARK: - Service
 
-@MainActor
 class FengshuiService: ObservableObject {
     @Published private(set) var almanac: DailyAlmanac?
     @Published private(set) var isLoading = false
