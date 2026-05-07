@@ -44,21 +44,20 @@ class FengshuiService: ObservableObject {
     private let greg = Calendar(identifier: .gregorian)
 
     func load(for date: Date = Date()) {
-        // Always show local data immediately so the UI is never blank
         let local = ChineseCalendarEngine.calculate(for: date)
-        almanac    = local
+        almanac     = local
         sourceLabel = "本地计算"
 
-        guard FengshuiAPIConfig.isConfigured else { return }
-
-        isLoading = true
-        Task {
-            if let enhanced = try? await fetchFromAPI(date: date, base: local) {
-                almanac     = enhanced
-                sourceLabel = "实时数据"
-            }
-            isLoading = false
-        }
+        // Live API fetch disabled — uncomment when mxnzp.com credentials are available
+        // guard FengshuiAPIConfig.isConfigured else { return }
+        // isLoading = true
+        // Task {
+        //     if let enhanced = try? await fetchFromAPI(date: date, base: local) {
+        //         almanac     = enhanced
+        //         sourceLabel = "实时数据"
+        //     }
+        //     isLoading = false
+        // }
     }
 
     // MARK: - API fetch
