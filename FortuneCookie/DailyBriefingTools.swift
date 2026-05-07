@@ -31,20 +31,15 @@ struct DailyBriefingTools {
     private let eventStore = EKEventStore()
 
     // Tool 1: Calendar events
+    // Never requests permission here — that would block the briefing flow.
+    // Grant access via iOS Settings → Privacy → Calendars before generating.
     func getCalendarEvents() async throws -> String {
-        let granted: Bool
-        if #available(iOS 17.0, *) {
-            granted = try await eventStore.requestFullAccessToEvents()
-        } else {
-            granted = try await withCheckedThrowingContinuation { cont in
-                eventStore.requestAccess(to: .event) { ok, err in
-                    if let err { cont.resume(throwing: err) } else { cont.resume(returning: ok) }
-                }
-            }
+        let status = EKEventStore.authorizationStatus(for: .event)
+        guard status == .fullAccess || status == .authorized else {
+            return "Calendar access not granted. Enable it in Settings → Privacy → Calendars to include your events in the briefing."
         }
-        guard granted else { return "Calendar access was not granted." }
 
-        let cal = Calendar.current
+        let cal   = Calendar.current
         let start = cal.startOfDay(for: Date())
         let end   = cal.date(byAdding: .day, value: 1, to: start)!
         let pred  = eventStore.predicateForEvents(withStart: start, end: end, calendars: nil)
@@ -58,10 +53,21 @@ struct DailyBriefingTools {
 
         return events.map { ev -> String in
             var parts = ["\(ev.title ?? "Untitled") at \(fmt.string(from: ev.startDate))"]
-            if let loc = ev.location,  !loc.isEmpty   { parts.append("Location: \(loc)") }
-            if let notes = ev.notes,   !notes.isEmpty { parts.append("Notes: \(notes)") }
+            if let loc   = ev.location, !loc.isEmpty   { parts.append("Location: \(loc)") }
+            if let notes = ev.notes,    !notes.isEmpty { parts.append("Notes: \(notes)") }
             return parts.joined(separator: "; ")
         }.joined(separator: "\n")
+    }
+
+    // Call once from onboarding / profile screen to trigger the system prompt.
+    func requestCalendarAccess() async -> Bool {
+        if #available(iOS 17.0, *) {
+            return (try? await eventStore.requestFullAccessToEvents()) ?? false
+        } else {
+            return await withCheckedContinuation { cont in
+                eventStore.requestAccess(to: .event) { ok, _ in cont.resume(returning: ok) }
+            }
+        }
     }
 
     // Tool 2: Fengshui / almanac data

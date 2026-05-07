@@ -1,9 +1,13 @@
+import EventKit
 import SwiftUI
 
 struct ProfileView: View {
     @State private var profile = UserProfile.load()
     @State private var newGoal = ""
+    @State private var calendarStatus = EKEventStore.authorizationStatus(for: .event)
     @Environment(\.dismiss) private var dismiss
+
+    private let tools = DailyBriefingTools()
 
     private let zodiacs = [
         "🐭 鼠 Rat",   "🐂 牛 Ox",      "🐯 虎 Tiger",   "🐰 兔 Rabbit",
@@ -25,6 +29,7 @@ struct ProfileView: View {
                         nameSection
                         zodiacSection
                         goalsSection
+                        calendarSection
                         saveButton
                     }
                     .padding(.horizontal, 16)
@@ -133,6 +138,40 @@ struct ProfileView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var calendarSection: some View {
+        let granted = calendarStatus == .fullAccess || calendarStatus == .authorized
+        return profileField("Calendar Access") {
+            HStack {
+                Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundColor(granted ? .green : Theme.red.opacity(0.75))
+                Text(granted ? "Access granted" : "Not granted — tap to allow")
+                    .font(.system(size: 14, design: .serif))
+                    .foregroundColor(Theme.inkBlack)
+                Spacer()
+                if !granted {
+                    Button("Allow") {
+                        Task {
+                            if calendarStatus == .notDetermined {
+                                _ = await tools.requestCalendarAccess()
+                            } else {
+                                // Already denied — send to Settings
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    await UIApplication.shared.open(url)
+                                }
+                            }
+                            calendarStatus = EKEventStore.authorizationStatus(for: .event)
+                        }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.red)
+                }
+            }
+            .padding(12)
+            .background(Theme.paper)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 
