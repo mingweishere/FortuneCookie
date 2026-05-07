@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 // MARK: - API response models (mxnzp.com free tier)
 // Register for a free key at: https://www.mxnzp.com/
