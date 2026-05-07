@@ -32,15 +32,15 @@ enum BriefingError: LocalizedError {
 
 class DailyBriefingAgent {
     private let tools = DailyBriefingTools()
-    private let model = "gemini-2.0-flash"
+    private let model = "gemini-2.5-flash"
     private var apiURL: URL {
         URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(BriefingConfig.apiKey)")!
     }
 
     private let systemPrompt = """
     You are a personal Fengshui daily briefing assistant. Each morning, you \
-    autonomously gather the user's calendar, today's Fengshui energy, and relevant \
-    world context via Google search. You then synthesize a warm, insightful morning \
+    autonomously gather the user's calendar, today's Fengshui energy, and share \
+    relevant world context from your knowledge. You then synthesize a warm, insightful morning \
     briefing that helps the user align their day with cosmic energy. Always call \
     ALL available functions before writing the briefing. Be specific — reference \
     actual calendar events by name, actual Fengshui indicators, and real news.
@@ -83,7 +83,6 @@ class DailyBriefingAgent {
 
         let geminiTools: [GeminiTool] = [
             GeminiTool(functionDeclarations: functionDeclarations, googleSearch: nil),
-            GeminiTool(functionDeclarations: nil, googleSearch: GeminiGoogleSearch()),
         ]
 
         while true {

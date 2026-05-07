@@ -46,7 +46,6 @@ class DailyBriefingViewModel: ObservableObject {
         case "get_fengshui_data":   return "Reading today's energy…"
         case "get_user_profile":    return "Loading your profile…"
         case "get_calendar_events": return "Checking your calendar…"
-        case "web_search":          return "Searching the world…"
         default:                    return "Gathering information…"
         }
     }
