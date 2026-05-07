@@ -1,0 +1,12 @@
+# API keys — never commit this file
+FortuneCookie/Config.plist
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+.build/
+
+# macOS
+.DS_Store

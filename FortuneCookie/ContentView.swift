@@ -17,6 +17,10 @@ struct ContentView: View {
                 .tabItem {
                     Label("黄历", systemImage: "calendar")
                 }
+            DailyBriefingView()
+                .tabItem {
+                    Label("Briefing", systemImage: "sparkles")
+                }
         }
         .environmentObject(store)
         .tint(Theme.gold)
