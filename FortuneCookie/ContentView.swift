@@ -13,6 +13,10 @@ struct ContentView: View {
                 .tabItem {
                     Label("Today", systemImage: "scroll.fill")
                 }
+            AlmanacView()
+                .tabItem {
+                    Label("黄历", systemImage: "calendar")
+                }
         }
         .environmentObject(store)
         .tint(Theme.gold)
