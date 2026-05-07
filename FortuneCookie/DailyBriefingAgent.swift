@@ -38,104 +38,72 @@ class DailyBriefingAgent {
     }
 
     private let systemPrompt = """
-    You are a personal Fengshui daily briefing assistant. Each morning, you \
-    autonomously gather the user's calendar, today's Fengshui energy, and relevant \
-    world context via Google search. You then synthesize a warm, insightful morning \
-    briefing that helps the user align their day with cosmic energy. Always call \
-    ALL available functions before writing the briefing. Be specific — reference \
-    actual calendar events by name, actual Fengshui indicators, and real news.
+    You are a personal Fengshui daily briefing assistant. You will receive the user's \
+    Fengshui data, calendar events, and profile. Use Google Search to find relevant \
+    current news and world context, then synthesise everything into a warm, insightful \
+    morning briefing. Be specific — reference actual Fengshui indicators, calendar events \
+    by name, and real news from your search.
 
-    Structure your final response using EXACTLY these section headers (keep the emoji):
+    Structure your response with EXACTLY these section headers (keep the emoji):
     ## 🌟 Fengshui Snapshot
     ## 📅 Calendar Alignment
     ## 🌐 World Context
     ## 🥠 Your Personal Fortune
     """
 
-    private var functionDeclarations: [GeminiFunctionDeclaration] {[
-        GeminiFunctionDeclaration(
-            name: "get_fengshui_data",
-            description: "Returns today's Chinese almanac and Fengshui data: lunar date, ganzhi, auspicious/inauspicious activities, lucky directions, and day quality.",
-            parameters: GeminiParameters(properties: [:], required: [])
-        ),
-        GeminiFunctionDeclaration(
-            name: "get_calendar_events",
-            description: "Fetches today's calendar events from the user's device, including title, time, location, and notes.",
-            parameters: GeminiParameters(properties: [:], required: [])
-        ),
-        GeminiFunctionDeclaration(
-            name: "get_user_profile",
-            description: "Returns the user's stored profile: name, Chinese zodiac sign, and personal goals.",
-            parameters: GeminiParameters(properties: [:], required: [])
-        ),
-    ]}
+    // MARK: - Main entry point
 
-    // Main entry point. `onToolCall` fires on the main actor before each local tool execution.
+    // Phase 1: gather all local data directly in Swift (no API call, no tool-conflict).
+    // Phase 2: single Gemini request with google_search grounding only — synthesises
+    //          everything and fetches live web context in one clean call.
     func generate(onToolCall: @escaping (String) -> Void) async throws -> String {
         guard !BriefingConfig.apiKey.isEmpty else { throw BriefingError.missingAPIKey }
 
-        let systemContent = GeminiContent(role: nil, parts: [GeminiPart(text: systemPrompt)])
-        var contents: [GeminiContent] = [
-            GeminiContent(role: "user", parts: [
-                GeminiPart(text: "Please generate my personalised daily briefing for today. Call ALL available functions before writing the briefing.")
-            ])
-        ]
+        // Phase 1 — local tools (instant, no API)
+        onToolCall("get_fengshui_data")
+        let fengshui = tools.getFengshuiData()
 
-        let geminiTools: [GeminiTool] = [
-            GeminiTool(functionDeclarations: functionDeclarations, googleSearch: nil),
-            GeminiTool(functionDeclarations: nil, googleSearch: GeminiGoogleSearch()),
-        ]
+        onToolCall("get_user_profile")
+        let profile = tools.getUserProfile()
 
-        while true {
-            let response = try await callAPI(
-                systemInstruction: systemContent,
-                contents: contents,
-                tools: geminiTools
-            )
+        onToolCall("get_calendar_events")
+        let calendar = (try? await tools.getCalendarEvents()) ?? "Calendar unavailable."
 
-            guard let candidate = response.candidates.first else {
-                throw BriefingError.apiError("No candidates returned.")
-            }
-
-            let parts = candidate.content.parts
-            let functionCalls = parts.compactMap { $0.functionCall }
-
-            // No more function calls → extract text and return
-            if functionCalls.isEmpty {
-                let text = parts.compactMap { $0.text }.joined(separator: "\n")
-                return text
-            }
-
-            // Append model's turn (includes the function call parts)
-            contents.append(GeminiContent(role: "model", parts: parts))
-
-            // Execute each function and collect responses
-            var responseParts: [GeminiPart] = []
-            for call in functionCalls {
-                onToolCall(call.name)
-                let result = try await executeTool(name: call.name, args: call.args)
-                responseParts.append(GeminiPart(
-                    functionResponse: GeminiFunctionResponse(
-                        name: call.name,
-                        response: ["output": result]
-                    )
-                ))
-            }
-
-            // Append user turn with function responses
-            contents.append(GeminiContent(role: "user", parts: responseParts))
-        }
+        // Phase 2 — single grounded API call
+        onToolCall("web_search")
+        return try await synthesise(fengshui: fengshui, calendar: calendar, profile: profile)
     }
 
-    // MARK: - Tool dispatch
+    // MARK: - Synthesis (google_search grounding only — no function_declarations)
 
-    private func executeTool(name: String, args: JSONValue?) async throws -> String {
-        switch name {
-        case "get_fengshui_data":   return tools.getFengshuiData()
-        case "get_calendar_events": return (try? await tools.getCalendarEvents()) ?? "Calendar unavailable."
-        case "get_user_profile":    return tools.getUserProfile()
-        default:                    return "Unknown function."
+    private func synthesise(fengshui: String, calendar: String, profile: String) async throws -> String {
+        let userMessage = """
+        Please generate my personalised daily briefing using the data below. \
+        Search the web for relevant current news before writing.
+
+        FENGSHUI & ALMANAC:
+        \(fengshui)
+
+        CALENDAR EVENTS:
+        \(calendar)
+
+        USER PROFILE:
+        \(profile)
+        """
+
+        let response = try await callAPI(
+            systemInstruction: GeminiContent(role: nil, parts: [GeminiPart(text: systemPrompt)]),
+            contents: [GeminiContent(role: "user", parts: [GeminiPart(text: userMessage)])],
+            tools: [GeminiTool(functionDeclarations: nil, googleSearch: GeminiGoogleSearch())]
+        )
+
+        guard let candidate = response.candidates.first else {
+            throw BriefingError.apiError("No candidates returned.")
         }
+
+        let text = candidate.content.parts.compactMap { $0.text }.joined(separator: "\n")
+        guard !text.isEmpty else { throw BriefingError.apiError("Empty response from model.") }
+        return text
     }
 
     // MARK: - HTTP
