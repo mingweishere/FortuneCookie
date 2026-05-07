@@ -2,122 +2,117 @@ import Foundation
 
 // MARK: - Request
 
-struct AnthropicRequest: Encodable {
-    let model: String
-    let maxTokens: Int
-    let system: String
-    let messages: [APIMessage]
-    let tools: [ToolDefinition]
+struct GeminiRequest: Encodable {
+    let systemInstruction: GeminiContent?
+    let contents: [GeminiContent]
+    let tools: [GeminiTool]?
+    let generationConfig: GeminiGenerationConfig?
 
     enum CodingKeys: String, CodingKey {
-        case model, system, messages, tools
-        case maxTokens = "max_tokens"
+        case systemInstruction = "system_instruction"
+        case contents, tools
+        case generationConfig = "generation_config"
     }
 }
 
-struct APIMessage: Encodable {
-    let role: String
-    let content: [ContentBlock]
-}
-
-struct ContentBlock: Codable {
-    let type: String
-    var text: String?
-    var id: String?
-    var name: String?
-    var input: JSONValue?
-    var toolUseId: String?
-    var content: String?
+struct GeminiGenerationConfig: Encodable {
+    let maxOutputTokens: Int
 
     enum CodingKeys: String, CodingKey {
-        case type, text, id, name, input, content
-        case toolUseId = "tool_use_id"
+        case maxOutputTokens = "max_output_tokens"
+    }
+}
+
+// MARK: - Content / Parts
+
+struct GeminiContent: Codable {
+    let role: String?
+    let parts: [GeminiPart]
+}
+
+struct GeminiPart: Codable {
+    var text: String?
+    var functionCall: GeminiFunctionCall?
+    var functionResponse: GeminiFunctionResponse?
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case functionCall     = "function_call"
+        case functionResponse = "function_response"
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(type, forKey: .type)
-        try c.encodeIfPresent(text,      forKey: .text)
-        try c.encodeIfPresent(id,        forKey: .id)
-        try c.encodeIfPresent(name,      forKey: .name)
-        try c.encodeIfPresent(input,     forKey: .input)
-        try c.encodeIfPresent(toolUseId, forKey: .toolUseId)
-        try c.encodeIfPresent(content,   forKey: .content)
+        try c.encodeIfPresent(text,             forKey: .text)
+        try c.encodeIfPresent(functionCall,     forKey: .functionCall)
+        try c.encodeIfPresent(functionResponse, forKey: .functionResponse)
     }
+}
 
-    static func text(_ value: String) -> ContentBlock {
-        ContentBlock(type: "text", text: value)
-    }
+struct GeminiFunctionCall: Codable {
+    let name: String
+    let args: JSONValue?
+}
 
-    static func toolResult(toolUseId: String, content: String) -> ContentBlock {
-        ContentBlock(type: "tool_result", toolUseId: toolUseId, content: content)
-    }
+struct GeminiFunctionResponse: Encodable {
+    let name: String
+    let response: [String: String]   // {"output": "<tool result>"}
 }
 
 // MARK: - Tool definitions
 
-struct ToolDefinition: Encodable {
-    let type: String?
-    let name: String
-    let description: String?
-    let inputSchema: InputSchema?
+struct GeminiTool: Encodable {
+    let functionDeclarations: [GeminiFunctionDeclaration]?
+    let googleSearch: GeminiGoogleSearch?
 
     enum CodingKeys: String, CodingKey {
-        case type, name, description
-        case inputSchema = "input_schema"
+        case functionDeclarations = "function_declarations"
+        case googleSearch         = "google_search"
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(type,        forKey: .type)
-        try c.encode(name,                 forKey: .name)
-        try c.encodeIfPresent(description, forKey: .description)
-        try c.encodeIfPresent(inputSchema, forKey: .inputSchema)
-    }
-
-    static func builtin(type: String, name: String) -> ToolDefinition {
-        ToolDefinition(type: type, name: name, description: nil, inputSchema: nil)
-    }
-
-    static func custom(name: String, description: String) -> ToolDefinition {
-        ToolDefinition(type: nil, name: name, description: description,
-                       inputSchema: InputSchema(properties: [:], required: []))
+        try c.encodeIfPresent(functionDeclarations, forKey: .functionDeclarations)
+        try c.encodeIfPresent(googleSearch,         forKey: .googleSearch)
     }
 }
 
-struct InputSchema: Encodable {
+struct GeminiGoogleSearch: Encodable {}   // presence of key enables grounding
+
+struct GeminiFunctionDeclaration: Encodable {
+    let name: String
+    let description: String
+    let parameters: GeminiParameters
+}
+
+struct GeminiParameters: Encodable {
     let type = "object"
-    let properties: [String: SchemaProperty]
+    let properties: [String: GeminiPropertySchema]
     let required: [String]
 }
 
-struct SchemaProperty: Encodable {
+struct GeminiPropertySchema: Encodable {
     let type: String
     let description: String
 }
 
 // MARK: - Response
 
-struct AnthropicResponse: Decodable {
-    let id: String
-    let content: [ResponseBlock]
-    let stopReason: String?
+struct GeminiResponse: Decodable {
+    let candidates: [GeminiCandidate]
+}
+
+struct GeminiCandidate: Decodable {
+    let content: GeminiContent
+    let finishReason: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, content
-        case stopReason = "stop_reason"
+        case content
+        case finishReason = "finish_reason"
     }
 }
 
-struct ResponseBlock: Decodable {
-    let type: String
-    let text: String?
-    let id: String?
-    let name: String?
-    let input: JSONValue?
-}
-
-// MARK: - JSONValue (arbitrary JSON)
+// MARK: - JSONValue (arbitrary JSON for function call args)
 
 enum JSONValue: Codable {
     case string(String)
@@ -129,11 +124,11 @@ enum JSONValue: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if let v = try? c.decode(Bool.self)               { self = .bool(v);   return }
-        if let v = try? c.decode(Double.self)             { self = .number(v); return }
-        if let v = try? c.decode(String.self)             { self = .string(v); return }
-        if let v = try? c.decode([String: JSONValue].self){ self = .object(v); return }
-        if let v = try? c.decode([JSONValue].self)        { self = .array(v);  return }
+        if let v = try? c.decode(Bool.self)                { self = .bool(v);   return }
+        if let v = try? c.decode(Double.self)              { self = .number(v); return }
+        if let v = try? c.decode(String.self)              { self = .string(v); return }
+        if let v = try? c.decode([String: JSONValue].self) { self = .object(v); return }
+        if let v = try? c.decode([JSONValue].self)         { self = .array(v);  return }
         self = .null
     }
 
@@ -150,8 +145,8 @@ enum JSONValue: Codable {
     }
 
     subscript(_ key: String) -> JSONValue? {
-        guard case .object(let dict) = self else { return nil }
-        return dict[key]
+        guard case .object(let d) = self else { return nil }
+        return d[key]
     }
 
     var stringValue: String? {

@@ -6,7 +6,7 @@ enum BriefingConfig {
     static var apiKey: String {
         guard let path = Bundle.main.path(forResource: "Config", ofType: "plist"),
               let dict = NSDictionary(contentsOfFile: path),
-              let key  = dict["AnthropicAPIKey"] as? String,
+              let key  = dict["GeminiAPIKey"] as? String,
               !key.isEmpty, key != "PASTE_YOUR_KEY_HERE" else { return "" }
         return key
     }
@@ -21,7 +21,7 @@ enum BriefingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "API key not configured. Open Config.plist and paste your Anthropic key."
+            return "API key not configured. Open Config.plist and paste your Gemini key."
         case .apiError(let msg):
             return "API error: \(msg)"
         }
@@ -32,15 +32,18 @@ enum BriefingError: LocalizedError {
 
 class DailyBriefingAgent {
     private let tools = DailyBriefingTools()
-    private let apiURL = URL(string: "https://api.anthropic.com/v1/messages")!
+    private let model = "gemini-2.0-flash"
+    private var apiURL: URL {
+        URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(BriefingConfig.apiKey)")!
+    }
 
     private let systemPrompt = """
     You are a personal Fengshui daily briefing assistant. Each morning, you \
     autonomously gather the user's calendar, today's Fengshui energy, and relevant \
-    world context via web search. You then synthesize a warm, insightful morning \
+    world context via Google search. You then synthesize a warm, insightful morning \
     briefing that helps the user align their day with cosmic energy. Always call \
-    ALL available tools before writing the briefing. Be specific — reference actual \
-    calendar events by name, actual Fengshui indicators, and real news.
+    ALL available functions before writing the briefing. Be specific — reference \
+    actual calendar events by name, actual Fengshui indicators, and real news.
 
     Structure your final response using EXACTLY these section headers (keep the emoji):
     ## 🌟 Fengshui Snapshot
@@ -49,85 +52,110 @@ class DailyBriefingAgent {
     ## 🥠 Your Personal Fortune
     """
 
-    private var toolDefinitions: [ToolDefinition] {[
-        .builtin(type: "web_search_20250305", name: "web_search"),
-        .custom(name: "get_fengshui_data",
-                description: "Returns today's Chinese almanac and Fengshui data: lunar date, ganzhi, auspicious/inauspicious activities, lucky directions, and day quality."),
-        .custom(name: "get_calendar_events",
-                description: "Fetches today's calendar events from the user's device, including title, time, location, and notes."),
-        .custom(name: "get_user_profile",
-                description: "Returns the user's stored profile: name, Chinese zodiac sign, and personal goals."),
+    private var functionDeclarations: [GeminiFunctionDeclaration] {[
+        GeminiFunctionDeclaration(
+            name: "get_fengshui_data",
+            description: "Returns today's Chinese almanac and Fengshui data: lunar date, ganzhi, auspicious/inauspicious activities, lucky directions, and day quality.",
+            parameters: GeminiParameters(properties: [:], required: [])
+        ),
+        GeminiFunctionDeclaration(
+            name: "get_calendar_events",
+            description: "Fetches today's calendar events from the user's device, including title, time, location, and notes.",
+            parameters: GeminiParameters(properties: [:], required: [])
+        ),
+        GeminiFunctionDeclaration(
+            name: "get_user_profile",
+            description: "Returns the user's stored profile: name, Chinese zodiac sign, and personal goals.",
+            parameters: GeminiParameters(properties: [:], required: [])
+        ),
     ]}
 
-    // Main entry point. `onToolCall` is called on the main actor before each tool execution.
+    // Main entry point. `onToolCall` fires on the main actor before each local tool execution.
     func generate(onToolCall: @escaping (String) -> Void) async throws -> String {
         guard !BriefingConfig.apiKey.isEmpty else { throw BriefingError.missingAPIKey }
 
-        var messages: [APIMessage] = [
-            APIMessage(role: "user", content: [
-                .text("Please generate my personalised daily briefing for today. Call ALL available tools before writing the briefing.")
+        let systemContent = GeminiContent(role: nil, parts: [GeminiPart(text: systemPrompt)])
+        var contents: [GeminiContent] = [
+            GeminiContent(role: "user", parts: [
+                GeminiPart(text: "Please generate my personalised daily briefing for today. Call ALL available functions before writing the briefing.")
             ])
         ]
 
+        let geminiTools: [GeminiTool] = [
+            GeminiTool(functionDeclarations: functionDeclarations, googleSearch: nil),
+            GeminiTool(functionDeclarations: nil, googleSearch: GeminiGoogleSearch()),
+        ]
+
         while true {
-            let response = try await callAPI(messages: messages)
+            let response = try await callAPI(
+                systemInstruction: systemContent,
+                contents: contents,
+                tools: geminiTools
+            )
 
-            let toolUseBlocks = response.content.filter { $0.type == "tool_use" }
-
-            // No pending tool calls → return the final text
-            if toolUseBlocks.isEmpty {
-                return response.content
-                    .filter { $0.type == "text" }
-                    .compactMap { $0.text }
-                    .joined(separator: "\n")
+            guard let candidate = response.candidates.first else {
+                throw BriefingError.apiError("No candidates returned.")
             }
 
-            // Append assistant turn (all content blocks, including any text before tool calls)
-            let assistantBlocks = response.content.map { b in
-                ContentBlock(type: b.type, text: b.text, id: b.id, name: b.name, input: b.input)
-            }
-            messages.append(APIMessage(role: "assistant", content: assistantBlocks))
+            let parts = candidate.content.parts
+            let functionCalls = parts.compactMap { $0.functionCall }
 
-            // Execute each tool and collect results
-            var results: [ContentBlock] = []
-            for block in toolUseBlocks {
-                guard let toolName = block.name, let toolId = block.id else { continue }
-                onToolCall(toolName)
-                let result = try await executeTool(name: toolName, input: block.input)
-                results.append(.toolResult(toolUseId: toolId, content: result))
+            // No more function calls → extract text and return
+            if functionCalls.isEmpty {
+                let text = parts.compactMap { $0.text }.joined(separator: "\n")
+                return text
             }
-            messages.append(APIMessage(role: "user", content: results))
+
+            // Append model's turn (includes the function call parts)
+            contents.append(GeminiContent(role: "model", parts: parts))
+
+            // Execute each function and collect responses
+            onToolCall(functionCalls.first?.name ?? "")
+            var responseParts: [GeminiPart] = []
+            for call in functionCalls {
+                onToolCall(call.name)
+                let result = try await executeTool(name: call.name, args: call.args)
+                responseParts.append(GeminiPart(
+                    functionResponse: GeminiFunctionResponse(
+                        name: call.name,
+                        response: ["output": result]
+                    )
+                ))
+            }
+
+            // Append user turn with function responses
+            contents.append(GeminiContent(role: "user", parts: responseParts))
         }
     }
 
     // MARK: - Tool dispatch
 
-    private func executeTool(name: String, input: JSONValue?) async throws -> String {
+    private func executeTool(name: String, args: JSONValue?) async throws -> String {
         switch name {
         case "get_fengshui_data":   return tools.getFengshuiData()
         case "get_calendar_events": return (try? await tools.getCalendarEvents()) ?? "Calendar unavailable."
         case "get_user_profile":    return tools.getUserProfile()
-        case "web_search":          return "" // handled server-side by Anthropic
-        default:                    return "Unknown tool."
+        default:                    return "Unknown function."
         }
     }
 
     // MARK: - HTTP
 
-    private func callAPI(messages: [APIMessage]) async throws -> AnthropicResponse {
-        let body = AnthropicRequest(
-            model: "claude-sonnet-4-20250514",
-            maxTokens: 4096,
-            system: systemPrompt,
-            messages: messages,
-            tools: toolDefinitions
+    private func callAPI(
+        systemInstruction: GeminiContent,
+        contents: [GeminiContent],
+        tools: [GeminiTool]
+    ) async throws -> GeminiResponse {
+        let body = GeminiRequest(
+            systemInstruction: systemInstruction,
+            contents: contents,
+            tools: tools,
+            generationConfig: GeminiGenerationConfig(maxOutputTokens: 4096)
         )
 
         var req = URLRequest(url: apiURL)
         req.httpMethod = "POST"
-        req.setValue("application/json",       forHTTPHeaderField: "Content-Type")
-        req.setValue(BriefingConfig.apiKey,    forHTTPHeaderField: "x-api-key")
-        req.setValue("2023-06-01",             forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: req)
@@ -137,6 +165,6 @@ class DailyBriefingAgent {
             throw BriefingError.apiError(msg)
         }
 
-        return try JSONDecoder().decode(AnthropicResponse.self, from: data)
+        return try JSONDecoder().decode(GeminiResponse.self, from: data)
     }
 }
