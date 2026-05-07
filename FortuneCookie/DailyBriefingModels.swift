@@ -37,8 +37,8 @@ struct GeminiPart: Codable {
 
     enum CodingKeys: String, CodingKey {
         case text
-        case functionCall     = "function_call"
-        case functionResponse = "function_response"
+        case functionCall     = "functionCall"
+        case functionResponse = "functionResponse"
     }
 
     init(text: String? = nil, functionCall: GeminiFunctionCall? = nil, functionResponse: GeminiFunctionResponse? = nil) {
@@ -121,7 +121,7 @@ struct GeminiCandidate: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case content
-        case finishReason = "finish_reason"
+        case finishReason = "finishReason"
     }
 }
 

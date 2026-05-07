@@ -109,7 +109,6 @@ class DailyBriefingAgent {
             contents.append(GeminiContent(role: "model", parts: parts))
 
             // Execute each function and collect responses
-            onToolCall(functionCalls.first?.name ?? "")
             var responseParts: [GeminiPart] = []
             for call in functionCalls {
                 onToolCall(call.name)
