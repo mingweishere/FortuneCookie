@@ -41,6 +41,19 @@ struct GeminiPart: Codable {
         case functionResponse = "function_response"
     }
 
+    init(text: String? = nil, functionCall: GeminiFunctionCall? = nil, functionResponse: GeminiFunctionResponse? = nil) {
+        self.text = text
+        self.functionCall = functionCall
+        self.functionResponse = functionResponse
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decodeIfPresent(String.self, forKey: .text)
+        functionCall = try c.decodeIfPresent(GeminiFunctionCall.self, forKey: .functionCall)
+        functionResponse = try c.decodeIfPresent(GeminiFunctionResponse.self, forKey: .functionResponse)
+    }
+
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(text,             forKey: .text)
@@ -54,7 +67,7 @@ struct GeminiFunctionCall: Codable {
     let args: JSONValue?
 }
 
-struct GeminiFunctionResponse: Encodable {
+struct GeminiFunctionResponse: Codable {
     let name: String
     let response: [String: String]   // {"output": "<tool result>"}
 }
